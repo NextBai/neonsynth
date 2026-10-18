@@ -1,0 +1,1936 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NeonSynth 80s | 賽博龐克復古音樂合成器</title>
+  <meta name="description" content="極致視覺張力的賽博龐克風格 Web Audio 合成器與 16 步進節奏鼓機，純單一 HTML 檔案，支援鍵盤彈奏與即時頻譜視覺化。">
+  
+  <!-- Google Fonts: Orbitron & Rajdhani -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800;900&family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+
+  <style>
+    /* ==========================================================
+       1. 變數與核心設計系統 (Design Tokens & Reset)
+       ========================================================== */
+    :root {
+      --bg-dark: #07080d;
+      --bg-card: rgba(16, 18, 28, 0.85);
+      --bg-card-border: rgba(0, 240, 255, 0.22);
+      
+      --cyan: #00f0ff;
+      --cyan-glow: rgba(0, 240, 255, 0.5);
+      --magenta: #ff007f;
+      --magenta-glow: rgba(255, 0, 127, 0.5);
+      --yellow: #ffe600;
+      --yellow-glow: rgba(255, 230, 0, 0.5);
+      --purple: #8a2be2;
+      --purple-glow: rgba(138, 43, 226, 0.5);
+      --green: #00ff66;
+      
+      --text-main: #f0f4fc;
+      --text-muted: #7b88a8;
+      
+      --font-display: 'Orbitron', -apple-system, sans-serif;
+      --font-body: 'Rajdhani', -apple-system, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+      
+      --radius-sm: 6px;
+      --radius-md: 12px;
+      --radius-lg: 18px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      font-family: var(--font-body);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+      position: relative;
+    }
+
+    /* 3D 復古透視網格背景動畫 (Retro Grid Animation) */
+    .retro-grid-bg {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      pointer-events: none;
+      z-index: 0;
+      overflow: hidden;
+      opacity: 0.35;
+      background: radial-gradient(circle at 50% 20%, rgba(138, 43, 226, 0.2) 0%, transparent 70%);
+    }
+
+    .retro-grid-lines {
+      position: absolute;
+      width: 200%;
+      height: 150%;
+      left: -50%;
+      bottom: -40%;
+      background-image: 
+        linear-gradient(to right, rgba(0, 240, 255, 0.25) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255, 0, 127, 0.25) 1px, transparent 1px);
+      background-size: 60px 60px;
+      transform: perspective(400px) rotateX(65deg);
+      animation: gridMove 15s linear infinite;
+    }
+
+    @keyframes gridMove {
+      0% { transform: perspective(400px) rotateX(65deg) translateY(0); }
+      100% { transform: perspective(400px) rotateX(65deg) translateY(60px); }
+    }
+
+    /* 主應用容器 */
+    .app-container {
+      position: relative;
+      z-index: 1;
+      max-width: 1320px;
+      margin: 0 auto;
+      padding: 24px 20px 40px;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 22px;
+    }
+
+    /* ==========================================================
+       2. 頂部導航與標題區塊 (Header & Status Bar)
+       ========================================================== */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+      padding: 16px 24px;
+      background: var(--bg-card);
+      border: 1px solid var(--bg-card-border);
+      border-radius: var(--radius-md);
+      backdrop-filter: blur(12px);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6), 0 0 20px rgba(0, 240, 255, 0.12);
+    }
+
+    .brand-title {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .brand-logo {
+      width: 44px;
+      height: 44px;
+      background: linear-gradient(135deg, var(--cyan), var(--magenta));
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 15px var(--cyan-glow);
+    }
+
+    .brand-logo svg {
+      width: 26px;
+      height: 26px;
+      fill: #fff;
+    }
+
+    .brand-text h1 {
+      font-family: var(--font-display);
+      font-size: 1.5rem;
+      font-weight: 900;
+      letter-spacing: 2px;
+      background: linear-gradient(90deg, var(--cyan) 0%, #fff 50%, var(--magenta) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      text-transform: uppercase;
+    }
+
+    .brand-text p {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      letter-spacing: 1px;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      font-family: var(--font-display);
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 1px;
+      padding: 9px 18px;
+      border-radius: var(--radius-sm);
+      border: 1px solid transparent;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      text-transform: uppercase;
+      outline: none;
+    }
+
+    .btn:active {
+      transform: scale(0.96);
+    }
+
+    .btn-primary {
+      background: linear-gradient(90deg, rgba(0, 240, 255, 0.2), rgba(255, 0, 127, 0.2));
+      color: var(--cyan);
+      border-color: var(--cyan);
+      box-shadow: 0 0 12px rgba(0, 240, 255, 0.3);
+    }
+
+    .btn-primary:hover {
+      background: var(--cyan);
+      color: #000;
+      box-shadow: 0 0 20px var(--cyan);
+    }
+
+    .btn-magenta {
+      background: rgba(255, 0, 127, 0.15);
+      color: var(--magenta);
+      border-color: var(--magenta);
+      box-shadow: 0 0 12px rgba(255, 0, 127, 0.3);
+    }
+
+    .btn-magenta:hover {
+      background: var(--magenta);
+      color: #fff;
+      box-shadow: 0 0 22px var(--magenta);
+    }
+
+    .btn-yellow {
+      background: rgba(255, 230, 0, 0.15);
+      color: var(--yellow);
+      border-color: var(--yellow);
+    }
+
+    .btn-yellow:hover {
+      background: var(--yellow);
+      color: #000;
+      box-shadow: 0 0 18px var(--yellow);
+    }
+
+    .btn-outline {
+      background: transparent;
+      color: var(--text-main);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .btn-outline:hover {
+      border-color: var(--cyan);
+      color: var(--cyan);
+    }
+
+    .rec-indicator {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #ff3344;
+      display: inline-block;
+    }
+
+    .rec-active .rec-indicator {
+      animation: pulse 1s infinite alternate;
+    }
+
+    @keyframes pulse {
+      0% { opacity: 0.3; transform: scale(0.8); }
+      100% { opacity: 1; transform: scale(1.3); box-shadow: 0 0 10px #ff3344; }
+    }
+
+    /* ==========================================================
+       3. 核心儀表板 (Top Row: Visualizer & Master Deck)
+       ========================================================== */
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: 1.6fr 1fr;
+      gap: 20px;
+    }
+
+    @media (max-width: 992px) {
+      .dashboard-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .panel {
+      background: var(--bg-card);
+      border: 1px solid var(--bg-card-border);
+      border-radius: var(--radius-md);
+      padding: 20px;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .panel-title {
+      font-family: var(--font-display);
+      font-size: 0.95rem;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--cyan);
+      text-transform: uppercase;
+    }
+
+    .panel-title.pink {
+      color: var(--magenta);
+    }
+
+    .panel-title.yellow {
+      color: var(--yellow);
+    }
+
+    /* 示波器視覺化螢幕 (Visualizer Screen) */
+    .visualizer-wrapper {
+      position: relative;
+      width: 100%;
+      height: 220px;
+      background: #040508;
+      border-radius: var(--radius-sm);
+      border: 1px solid rgba(0, 240, 255, 0.3);
+      overflow: hidden;
+      box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.9), 0 0 15px rgba(0, 240, 255, 0.15);
+    }
+
+    #visualizerCanvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    /* CRT 掃描線光澤質感 */
+    .crt-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.45) 50%),
+                  linear-gradient(90deg, rgba(255, 0, 0, 0.03), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.03));
+      background-size: 100% 4px, 6px 100%;
+    }
+
+    .canvas-hud {
+      position: absolute;
+      top: 10px;
+      right: 12px;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--cyan);
+      letter-spacing: 1px;
+      pointer-events: none;
+      text-shadow: 0 0 6px var(--cyan);
+    }
+
+    /* 控制控制項 (Controls & Knobs Grid) */
+    .controls-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 16px;
+    }
+
+    .control-group {
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+      border-radius: var(--radius-sm);
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .control-label {
+      font-size: 0.8rem;
+      font-family: var(--font-display);
+      color: var(--text-muted);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .control-value {
+      color: var(--cyan);
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+    }
+
+    /* 自訂拉桿與滑桿 (Cyberpunk Sliders) */
+    input[type="range"] {
+      -webkit-appearance: none;
+      width: 100%;
+      height: 6px;
+      background: #1a1d2e;
+      border-radius: 3px;
+      outline: none;
+      cursor: pointer;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 4px;
+      background: var(--cyan);
+      box-shadow: 0 0 10px var(--cyan-glow);
+      cursor: pointer;
+      transition: transform 0.1s;
+    }
+
+    input[type="range"]::-webkit-slider-thumb:hover {
+      transform: scale(1.25);
+    }
+
+    input[type="range"].pink::-webkit-slider-thumb {
+      background: var(--magenta);
+      box-shadow: 0 0 10px var(--magenta-glow);
+    }
+
+    input[type="range"].yellow::-webkit-slider-thumb {
+      background: var(--yellow);
+      box-shadow: 0 0 10px var(--yellow-glow);
+    }
+
+    /* 波形按鈕切換群組 (Waveform Selector) */
+    .waveform-buttons {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+    }
+
+    .wave-btn {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 4px;
+      padding: 8px 4px;
+      color: var(--text-muted);
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      transition: all 0.2s;
+    }
+
+    .wave-btn svg {
+      width: 20px;
+      height: 20px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+    }
+
+    .wave-btn:hover {
+      border-color: var(--cyan);
+      color: var(--cyan);
+    }
+
+    .wave-btn.active {
+      background: rgba(0, 240, 255, 0.18);
+      border-color: var(--cyan);
+      color: var(--cyan);
+      box-shadow: 0 0 10px rgba(0, 240, 255, 0.3);
+    }
+
+    /* ==========================================================
+       4. 16 步進節奏鼓機 (16-Step Beat Sequencer)
+       ========================================================== */
+    .sequencer-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 14px;
+      margin-bottom: 16px;
+    }
+
+    .seq-controls {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .bpm-box {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: rgba(0, 0, 0, 0.4);
+      padding: 6px 14px;
+      border-radius: var(--radius-sm);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .bpm-display {
+      font-family: var(--font-mono);
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: var(--yellow);
+      min-width: 44px;
+      text-align: right;
+    }
+
+    .sequencer-matrix {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      overflow-x: auto;
+      padding-bottom: 6px;
+    }
+
+    .seq-track {
+      display: grid;
+      grid-template-columns: 120px 1fr;
+      align-items: center;
+      gap: 12px;
+      min-width: 700px;
+    }
+
+    .track-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      background: rgba(255, 255, 255, 0.03);
+      border-left: 3px solid var(--cyan);
+      border-radius: 4px;
+    }
+
+    .track-meta.pink { border-left-color: var(--magenta); }
+    .track-meta.yellow { border-left-color: var(--yellow); }
+    .track-meta.purple { border-left-color: var(--purple); }
+
+    .track-name {
+      font-family: var(--font-display);
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 1px;
+    }
+
+    .track-btn-mute {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 0.7rem;
+      font-family: var(--font-mono);
+    }
+
+    .track-btn-mute.muted {
+      color: #ff3344;
+      text-decoration: line-through;
+    }
+
+    .seq-steps {
+      display: grid;
+      grid-template-columns: repeat(16, 1fr);
+      gap: 6px;
+    }
+
+    .step-pad {
+      aspect-ratio: 1;
+      min-height: 38px;
+      background: #111422;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.12s ease;
+      position: relative;
+    }
+
+    /* 4 拍一組視覺分界 */
+    .step-pad:nth-child(4n+1) {
+      border-left: 2px solid rgba(255, 255, 255, 0.22);
+    }
+
+    .step-pad:hover {
+      border-color: rgba(0, 240, 255, 0.5);
+      background: #1a1e33;
+    }
+
+    /* 啟動狀態的步進按鈕 */
+    .step-pad.active.track-kick {
+      background: var(--cyan);
+      box-shadow: 0 0 12px var(--cyan);
+      border-color: #fff;
+    }
+
+    .step-pad.active.track-snare {
+      background: var(--magenta);
+      box-shadow: 0 0 12px var(--magenta);
+      border-color: #fff;
+    }
+
+    .step-pad.active.track-hihat {
+      background: var(--yellow);
+      box-shadow: 0 0 12px var(--yellow);
+      border-color: #fff;
+    }
+
+    .step-pad.active.track-bass {
+      background: var(--purple);
+      box-shadow: 0 0 12px var(--purple);
+      border-color: #fff;
+    }
+
+    /* 播放指示跑馬燈焦點 (Current Playing Step) */
+    .step-pad.current-step::after {
+      content: '';
+      position: absolute;
+      inset: -2px;
+      border: 2px solid #ffffff;
+      border-radius: 6px;
+      box-shadow: 0 0 15px #fff, inset 0 0 10px rgba(255, 255, 255, 0.8);
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    /* ==========================================================
+       5. 雙八度合成器鋼琴鍵盤 (Interactive Keyboard)
+       ========================================================== */
+    .keyboard-wrapper {
+      position: relative;
+      width: 100%;
+      background: #090b12;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(0, 240, 255, 0.25);
+      padding: 16px 14px 18px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8), inset 0 0 20px rgba(0, 0, 0, 0.8);
+      overflow-x: auto;
+    }
+
+    .keyboard-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 14px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .octave-selector {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--font-display);
+      font-size: 0.85rem;
+    }
+
+    .octave-badge {
+      font-family: var(--font-mono);
+      color: var(--cyan);
+      font-size: 1rem;
+      font-weight: 700;
+      min-width: 32px;
+      text-align: center;
+    }
+
+    .keys-container {
+      position: relative;
+      display: flex;
+      height: 190px;
+      min-width: 820px;
+      user-select: none;
+    }
+
+    /* 白鍵 */
+    .key-white {
+      flex: 1;
+      height: 100%;
+      background: linear-gradient(to bottom, #d8e2ee 0%, #ffffff 85%, #b9c6d6 100%);
+      border: 1px solid #1a2030;
+      border-radius: 0 0 6px 6px;
+      position: relative;
+      cursor: pointer;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      align-items: center;
+      padding-bottom: 10px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.4), inset 0 -4px 6px rgba(0, 0, 0, 0.2);
+      transition: background 0.08s, transform 0.05s, box-shadow 0.08s;
+    }
+
+    .key-white:hover {
+      background: linear-gradient(to bottom, #f0f6ff 0%, #ffffff 100%);
+    }
+
+    .key-white.active, .key-white:active {
+      background: linear-gradient(to bottom, #00f0ff 0%, #00b4d8 100%);
+      box-shadow: 0 0 20px var(--cyan), inset 0 2px 8px rgba(255, 255, 255, 0.6);
+      transform: translateY(3px);
+    }
+
+    /* 黑鍵 */
+    .key-black {
+      position: absolute;
+      width: 4.8%;
+      height: 60%;
+      background: linear-gradient(to bottom, #2b2e3d 0%, #12141c 80%, #000000 100%);
+      border: 1px solid #3d4663;
+      border-radius: 0 0 4px 4px;
+      z-index: 2;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      align-items: center;
+      padding-bottom: 8px;
+      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.7), inset 0 -2px 4px rgba(255, 255, 255, 0.1);
+      transition: background 0.08s, transform 0.05s, box-shadow 0.08s;
+    }
+
+    .key-black:hover {
+      background: linear-gradient(to bottom, #3f4459 0%, #1a1d28 100%);
+    }
+
+    .key-black.active, .key-black:active {
+      background: linear-gradient(to bottom, #ff007f 0%, #b30059 100%);
+      box-shadow: 0 0 22px var(--magenta), inset 0 2px 6px rgba(255, 255, 255, 0.5);
+      transform: translateY(3px);
+    }
+
+    .key-note {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: #333d52;
+      font-family: var(--font-display);
+      pointer-events: none;
+    }
+
+    .key-hint {
+      font-size: 0.7rem;
+      font-family: var(--font-mono);
+      color: #7b88a8;
+      background: rgba(0, 0, 0, 0.08);
+      padding: 1px 4px;
+      border-radius: 3px;
+      pointer-events: none;
+      margin-top: 2px;
+    }
+
+    .key-black .key-note {
+      color: #9aa7c7;
+      font-size: 0.65rem;
+    }
+
+    .key-black .key-hint {
+      color: var(--cyan);
+      background: rgba(0, 0, 0, 0.5);
+    }
+
+    .key-white.active .key-note, .key-white.active .key-hint {
+      color: #000;
+    }
+
+    .key-black.active .key-note, .key-black.active .key-hint {
+      color: #fff;
+    }
+
+    /* ==========================================================
+       6. 頁尾與說明資訊 (Footer & Tips)
+       ========================================================== */
+    footer {
+      margin-top: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      padding: 14px 20px;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .footer-hints {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .hint-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .kbd-badge {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--cyan);
+    }
+
+    /* 初始音訊解鎖遮罩 (Start Audio Overlay) */
+    .audio-gate-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(5, 6, 10, 0.92);
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 22px;
+      backdrop-filter: blur(14px);
+      transition: opacity 0.4s ease, visibility 0.4s;
+    }
+
+    .audio-gate-overlay.hidden {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+
+    .gate-card {
+      background: rgba(18, 20, 32, 0.95);
+      border: 2px solid var(--cyan);
+      box-shadow: 0 0 40px var(--cyan-glow);
+      border-radius: var(--radius-lg);
+      padding: 40px 36px;
+      max-width: 520px;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 18px;
+    }
+
+    .gate-card h2 {
+      font-family: var(--font-display);
+      font-size: 1.8rem;
+      letter-spacing: 2px;
+      color: #fff;
+      text-transform: uppercase;
+      text-shadow: 0 0 15px var(--cyan);
+    }
+
+    .gate-card p {
+      color: var(--text-muted);
+      font-size: 1rem;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 3D 復古幾何光網背景 -->
+  <div class="retro-grid-bg">
+    <div class="retro-grid-lines"></div>
+  </div>
+
+  <!-- 初次啟動 Web Audio 授權遮罩 -->
+  <div class="audio-gate-overlay" id="audioGateOverlay">
+    <div class="gate-card">
+      <div class="brand-logo" style="width: 56px; height: 56px;">
+        <svg viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
+      </div>
+      <h2>NeonSynth 80s</h2>
+      <p>現代瀏覽器要求使用者手勢互動以啟動高音質 Web Audio 音訊引擎。<br>點擊下方按鈕立刻開啟賽博龐克音樂工作室！</p>
+      <button class="btn btn-primary" id="btnInitAudio" style="font-size: 1rem; padding: 14px 28px;">
+        ⚡ 啟動音訊核心 (Start Engine)
+      </button>
+    </div>
+  </div>
+
+  <!-- 主介面容器 -->
+  <div class="app-container">
+
+    <!-- 頂部標頭與控制工具列 -->
+    <header>
+      <div class="brand-title">
+        <div class="brand-logo">
+          <svg viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
+        </div>
+        <div class="brand-text">
+          <h1>NeonSynth 80s</h1>
+          <p>CYBERPUNK POLYPHONIC SYNTHESIZER & STEP SEQUENCER</p>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <!-- 示範曲試聽 -->
+        <button class="btn btn-yellow" id="btnDemoSong" title="立即聆聽自動演奏的 Synthwave 示範曲">
+          <span>🎵 播放示範曲</span>
+        </button>
+
+        <!-- 錄音控制按鈕 -->
+        <button class="btn btn-outline" id="btnRecord">
+          <span class="rec-indicator"></span>
+          <span id="recText">錄製作品</span>
+        </button>
+
+        <!-- 下載/播放錄音 -->
+        <button class="btn btn-outline" id="btnDownloadRec" style="display: none;">
+          <span>💾 匯出音檔</span>
+        </button>
+
+        <!-- 視覺化模式切換 -->
+        <button class="btn btn-primary" id="btnToggleVizMode">
+          <span>模式: 示波器光波</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- 中央控制面板：視覺化螢幕 + 聲音調節器 -->
+    <div class="dashboard-grid">
+      
+      <!-- 視覺化示波器面板 -->
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+            即時音訊示波視覺化 (Audio Visualizer)
+          </div>
+          <span style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-mono);">60 FPS REALTIME</span>
+        </div>
+
+        <div class="visualizer-wrapper">
+          <canvas id="visualizerCanvas"></canvas>
+          <div class="crt-overlay"></div>
+          <div class="canvas-hud" id="vizHudText">SYS.STATUS: ONLINE | 44.1kHz</div>
+        </div>
+      </div>
+
+      <!-- 總音量與音色調節面板 (Master FX & Synthesizer Controls) -->
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title pink">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            音色與效果參數 (Synth & Master FX)
+          </div>
+        </div>
+
+        <div class="controls-grid">
+          <!-- 振盪器波形選擇 -->
+          <div class="control-group" style="grid-column: span 2;">
+            <div class="control-label">
+              <span>合成器波形 (Waveform)</span>
+              <span class="control-value" id="valWaveform">SAWTOOTH</span>
+            </div>
+            <div class="waveform-buttons">
+              <button class="wave-btn active" data-wave="sawtooth" title="鋸齒波 (復古電音標準)">
+                <svg viewBox="0 0 24 24"><path d="M2 18L12 6v12l10-12v12"/></svg>
+                Saw
+              </button>
+              <button class="wave-btn" data-wave="square" title="方波 (8-Bit 像素質感)">
+                <svg viewBox="0 0 24 24"><path d="M2 18V6h10v12h10V6"/></svg>
+                Square
+              </button>
+              <button class="wave-btn" data-wave="sine" title="正弦波 (純淨圓潤)">
+                <svg viewBox="0 0 24 24"><path d="M2 12c4-8 6-8 10 0s6 8 10 0"/></svg>
+                Sine
+              </button>
+              <button class="wave-btn" data-wave="triangle" title="三角波 (溫暖木質調)">
+                <svg viewBox="0 0 24 24"><path d="M2 18L8 6l8 12 6-12"/></svg>
+                Triangle
+              </button>
+            </div>
+          </div>
+
+          <!-- 濾波器 Cutoff Filter -->
+          <div class="control-group">
+            <div class="control-label">
+              <span>低通濾波 (Cutoff)</span>
+              <span class="control-value" id="valCutoff">2800 Hz</span>
+            </div>
+            <input type="range" id="paramCutoff" min="200" max="8000" step="50" value="2800">
+          </div>
+
+          <!-- 尾音釋放 Release -->
+          <div class="control-group">
+            <div class="control-label">
+              <span>釋放尾音 (Release)</span>
+              <span class="control-value" id="valRelease">0.35 s</span>
+            </div>
+            <input type="range" id="paramRelease" class="pink" min="0.05" max="2.0" step="0.05" value="0.35">
+          </div>
+
+          <!-- 空間回音 Delay FX -->
+          <div class="control-group">
+            <div class="control-label">
+              <span>空間回音 (Delay)</span>
+              <span class="control-value" id="valDelay">25%</span>
+            </div>
+            <input type="range" id="paramDelay" class="yellow" min="0" max="0.7" step="0.05" value="0.25">
+          </div>
+
+          <!-- 總主音量 Master Volume -->
+          <div class="control-group">
+            <div class="control-label">
+              <span>主音量 (Master)</span>
+              <span class="control-value" id="valVolume">80%</span>
+            </div>
+            <input type="range" id="paramVolume" min="0" max="1" step="0.02" value="0.8">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 16 步進節奏鼓機 (16-Step Beat Sequencer) -->
+    <div class="panel">
+      <div class="panel-header" style="margin-bottom: 12px;">
+        <div class="panel-title yellow">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          16 步進節奏鼓機 (16-Step Beat Sequencer)
+        </div>
+      </div>
+
+      <div class="sequencer-top">
+        <div class="seq-controls">
+          <button class="btn btn-primary" id="btnPlaySeq">▶ 播放節奏</button>
+          <button class="btn btn-outline" id="btnClearSeq">清空格點</button>
+          <button class="btn btn-outline" id="btnRandomSeq">🎲 隨機產生</button>
+          
+          <div class="bpm-box">
+            <span style="font-size: 0.8rem; color: var(--text-muted); font-family: var(--font-display);">BPM</span>
+            <span class="bpm-display" id="bpmVal">120</span>
+            <input type="range" id="paramBpm" min="70" max="170" step="1" value="120" style="width: 110px;">
+          </div>
+        </div>
+
+        <!-- 節奏範本庫 -->
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <span style="font-size: 0.8rem; color: var(--text-muted);">風格預設:</span>
+          <button class="btn btn-outline" style="padding: 5px 10px; font-size: 0.72rem;" onclick="loadDrumPreset('synthwave')">Synthwave</button>
+          <button class="btn btn-outline" style="padding: 5px 10px; font-size: 0.72rem;" onclick="loadDrumPreset('cyber')">Cyber Beat</button>
+          <button class="btn btn-outline" style="padding: 5px 10px; font-size: 0.72rem;" onclick="loadDrumPreset('trap')">80s Chill</button>
+        </div>
+      </div>
+
+      <!-- 鼓機矩陣 (4 軌道 x 16 步進) -->
+      <div class="sequencer-matrix" id="sequencerMatrix">
+        <!-- 由 JavaScript 動態生成 16 步進按鈕 -->
+      </div>
+    </div>
+
+    <!-- 鋼琴琴鍵鍵盤區塊 (Synthesizer Keyboard) -->
+    <div class="keyboard-wrapper">
+      <div class="keyboard-toolbar">
+        <div class="panel-title" style="margin: 0;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+          雙八度即時鍵盤 (Live Polyphonic Keys)
+        </div>
+
+        <div class="octave-selector">
+          <button class="btn btn-outline" id="btnOctaveDown" style="padding: 5px 10px;">◀ 八度 -</button>
+          <span class="octave-badge" id="octaveDisplay">OCT: 4</span>
+          <button class="btn btn-outline" id="btnOctaveUp" style="padding: 5px 10px;">八度 + ▶</button>
+        </div>
+      </div>
+
+      <!-- 琴鍵本體 (雙八度 24 音階) -->
+      <div class="keys-container" id="pianoKeyboard">
+        <!-- 由 JavaScript 精準渲染琴鍵位置 -->
+      </div>
+    </div>
+
+    <!-- 底部頁尾與鍵盤操作指引 -->
+    <footer>
+      <div class="footer-hints">
+        <div class="hint-item">
+          <span>⌨️ 電腦按鍵直接彈奏：</span>
+          <span class="kbd-badge">A</span><span class="kbd-badge">S</span><span class="kbd-badge">D</span><span class="kbd-badge">F</span><span class="kbd-badge">G</span><span class="kbd-badge">H</span><span class="kbd-badge">J</span> (白鍵)
+          <span class="kbd-badge">W</span><span class="kbd-badge">E</span><span class="kbd-badge">T</span><span class="kbd-badge">Y</span><span class="kbd-badge">U</span> (黑鍵)
+        </div>
+        <div class="hint-item">
+          <span>高音階：</span>
+          <span class="kbd-badge">K</span><span class="kbd-badge">L</span><span class="kbd-badge">;</span><span class="kbd-badge">'</span>
+        </div>
+      </div>
+
+      <div>
+        <span>Vibe Coding &copy; 2026 NeonSynth Studio | 純單檔 Web Audio 架構</span>
+      </div>
+    </footer>
+
+  </div>
+
+  <!-- ==========================================================
+       7. Web Audio 音訊核心與互動邏輯 (JavaScript)
+       ========================================================== -->
+  <script>
+    /* =========================================================
+       A. 狀態變數與設定
+       ========================================================= */
+    let audioCtx = null;
+    let masterGain = null;
+    let mainFilter = null;
+    let delayNode = null;
+    let delayGain = null;
+    let analyser = null;
+    let mediaRecorder = null;
+    let recordedChunks = [];
+    let recDestination = null;
+
+    // 鍵盤合成器參數
+    let currentWaveform = 'sawtooth';
+    let currentOctave = 4;
+    let synthRelease = 0.35;
+    let activeVoices = new Map(); // key: midiNote, value: { osc, gainNode }
+
+    // 鼓機參數
+    let isSeqPlaying = false;
+    let currentStep = 0;
+    let bpm = 120;
+    let seqIntervalId = null;
+
+    // 鼓機 4 軌道 (Kick, Snare, HiHat, Cyber Bass)
+    const DRUM_TRACKS = [
+      { id: 'kick', name: 'KICK 808', colorClass: 'track-kick', metaClass: '', muted: false },
+      { id: 'snare', name: 'SNARE REV', colorClass: 'track-snare', metaClass: 'pink', muted: false },
+      { id: 'hihat', name: 'HI-HAT CH', colorClass: 'track-hihat', metaClass: 'yellow', muted: false },
+      { id: 'bass', name: 'CYBER BASS', colorClass: 'track-bass', metaClass: 'purple', muted: false },
+    ];
+
+    // 16 步進狀態二維陣列 [trackIndex][stepIndex]
+    let sequencerGrid = [
+      [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0], // Kick
+      [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0], // Snare
+      [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], // HiHat
+      [1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0]  // Cyber Bass
+    ];
+
+    // 視覺化模式: 'waveform' (示波器) | 'bars' (頻譜柱)
+    let visualizerMode = 'waveform';
+
+    // 示範曲計時器
+    let demoSongTimeout = null;
+    let isDemoPlaying = false;
+
+    /* =========================================================
+       B. Web Audio 初始化核心
+       ========================================================= */
+    function initAudio() {
+      if (audioCtx) {
+        if (audioCtx.state === 'suspended') {
+          audioCtx.resume();
+        }
+        return;
+      }
+
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      audioCtx = new AudioContextClass();
+
+      // 主輸出音量節點
+      masterGain = audioCtx.createGain();
+      masterGain.gain.setValueAtTime(0.8, audioCtx.currentTime);
+
+      // 低通濾波器 (Low-pass Filter)
+      mainFilter = audioCtx.createBiquadFilter();
+      mainFilter.type = 'lowpass';
+      mainFilter.frequency.setValueAtTime(2800, audioCtx.currentTime);
+      mainFilter.Q.setValueAtTime(3.5, audioCtx.currentTime);
+
+      // 延遲回音效果 (Delay FX)
+      delayNode = audioCtx.createDelay();
+      delayNode.delayTime.setValueAtTime(0.28, audioCtx.currentTime); // 280ms
+      delayGain = audioCtx.createGain();
+      delayGain.gain.setValueAtTime(0.25, audioCtx.currentTime);
+      const delayFeedback = audioCtx.createGain();
+      delayFeedback.gain.setValueAtTime(0.35, audioCtx.currentTime);
+
+      // 串接 Delay 反饋迴路
+      delayNode.connect(delayFeedback);
+      delayFeedback.connect(delayNode);
+      delayNode.connect(delayGain);
+      delayGain.connect(masterGain);
+
+      // 即時分析器 (Analyser)
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 1024;
+      analyser.smoothingTimeConstant = 0.85;
+
+      // 錄音節點連接
+      recDestination = audioCtx.createMediaStreamDestination();
+
+      // 連接音訊鏈路：Main Filter -> Master Gain -> Analyser -> Speakers & Recorder
+      mainFilter.connect(masterGain);
+      masterGain.connect(analyser);
+      analyser.connect(audioCtx.destination);
+      analyser.connect(recDestination);
+
+      // 隱藏啟動遮罩
+      document.getElementById('audioGateOverlay').classList.add('hidden');
+
+      // 啟動視覺化渲染迴圈
+      startVisualizer();
+    }
+
+    /* =========================================================
+       C. 合成器多音核心 (Polyphonic Synthesizer)
+       ========================================================= */
+    function midiToFreq(midi) {
+      return 440 * Math.pow(2, (midi - 69) / 12);
+    }
+
+    function playNote(midiNote) {
+      if (!audioCtx) initAudio();
+      if (activeVoices.has(midiNote)) return;
+
+      const now = audioCtx.currentTime;
+      const freq = midiToFreq(midiNote);
+
+      // 建立振盪器
+      const osc = audioCtx.createOscillator();
+      osc.type = currentWaveform;
+      osc.frequency.setValueAtTime(freq, now);
+
+      // ADSR 音量包絡
+      const noteGain = audioCtx.createGain();
+      noteGain.gain.setValueAtTime(0.0001, now);
+      // Attack
+      noteGain.gain.exponentialRampToValueAtTime(0.35, now + 0.02);
+      // Decay to Sustain
+      noteGain.gain.exponentialRampToValueAtTime(0.25, now + 0.12);
+
+      // 連接到主濾波器與延遲
+      osc.connect(noteGain);
+      noteGain.connect(mainFilter);
+      noteGain.connect(delayNode);
+
+      osc.start(now);
+      activeVoices.set(midiNote, { osc, gainNode: noteGain });
+
+      // 點亮 UI 琴鍵
+      highlightKey(midiNote, true);
+    }
+
+    function stopNote(midiNote) {
+      if (!audioCtx) return;
+      const voice = activeVoices.get(midiNote);
+      if (!voice) return;
+
+      const now = audioCtx.currentTime;
+      const { osc, gainNode } = voice;
+
+      // Release 尾音平滑淡出
+      gainNode.gain.cancelScheduledValues(now);
+      gainNode.gain.setValueAtTime(gainNode.gain.value, now);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, now + synthRelease);
+
+      osc.stop(now + synthRelease + 0.05);
+
+      setTimeout(() => {
+        osc.disconnect();
+        gainNode.disconnect();
+      }, (synthRelease + 0.1) * 1000);
+
+      activeVoices.delete(midiNote);
+      highlightKey(midiNote, false);
+    }
+
+    /* =========================================================
+       D. 節奏鼓機合成引擎 (Drum Synth Sounds)
+       ========================================================= */
+    function triggerDrumSound(trackId, time) {
+      if (!audioCtx) return;
+      const now = time || audioCtx.currentTime;
+
+      if (trackId === 'kick') {
+        // 大鼓：快速下滑正弦波 + 瞬態衝擊
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(160, now);
+        osc.frequency.exponentialRampToValueAtTime(32, now + 0.16);
+
+        gain.gain.setValueAtTime(1.0, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+
+        osc.connect(gain);
+        gain.connect(masterGain);
+        osc.start(now);
+        osc.stop(now + 0.3);
+      } 
+      else if (trackId === 'snare') {
+        // 小鼓：白噪聲 + 短正弦音
+        const bufferSize = audioCtx.sampleRate * 0.15;
+        const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+          data[i] = Math.random() * 2 - 1;
+        }
+
+        const noise = audioCtx.createBufferSource();
+        noise.buffer = buffer;
+
+        const noiseFilter = audioCtx.createBiquadFilter();
+        noiseFilter.type = 'highpass';
+        noiseFilter.frequency.setValueAtTime(800, now);
+
+        const noiseGain = audioCtx.createGain();
+        noiseGain.gain.setValueAtTime(0.7, now);
+        noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+
+        noise.connect(noiseFilter);
+        noiseFilter.connect(noiseGain);
+        noiseGain.connect(masterGain);
+
+        noise.start(now);
+      }
+      else if (trackId === 'hihat') {
+        // 踩鈸：極高通白噪短促顆粒
+        const bufferSize = audioCtx.sampleRate * 0.05;
+        const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+          data[i] = (Math.random() * 2 - 1) * 0.8;
+        }
+
+        const noise = audioCtx.createBufferSource();
+        noise.buffer = buffer;
+
+        const filter = audioCtx.createBiquadFilter();
+        filter.type = 'highpass';
+        filter.frequency.setValueAtTime(7500, now);
+
+        const gain = audioCtx.createGain();
+        gain.gain.setValueAtTime(0.5, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+
+        noise.connect(filter);
+        filter.connect(gain);
+        gain.connect(masterGain);
+
+        noise.start(now);
+      }
+      else if (trackId === 'bass') {
+        // 賽博貝斯重低音節奏點
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(55, now); // A1
+
+        const filter = audioCtx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(600, now);
+        filter.frequency.exponentialRampToValueAtTime(100, now + 0.2);
+
+        gain.gain.setValueAtTime(0.7, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+
+        osc.connect(filter);
+        filter.connect(gain);
+        gain.connect(masterGain);
+
+        osc.start(now);
+        osc.stop(now + 0.25);
+      }
+    }
+
+    /* =========================================================
+       E. 16 步進鼓機排程器 (Sequencer Engine)
+       ========================================================= */
+    function toggleSequencer() {
+      if (!audioCtx) initAudio();
+
+      if (isSeqPlaying) {
+        clearInterval(seqIntervalId);
+        isSeqPlaying = false;
+        document.getElementById('btnPlaySeq').textContent = '▶ 播放節奏';
+        document.getElementById('btnPlaySeq').classList.remove('btn-magenta');
+        document.getElementById('btnPlaySeq').classList.add('btn-primary');
+        clearStepHighlights();
+      } else {
+        isSeqPlaying = true;
+        currentStep = 0;
+        document.getElementById('btnPlaySeq').textContent = '⏸ 暫停節奏';
+        document.getElementById('btnPlaySeq').classList.remove('btn-primary');
+        document.getElementById('btnPlaySeq').classList.add('btn-magenta');
+        startSequencerLoop();
+      }
+    }
+
+    function startSequencerLoop() {
+      // 16 步進換算間隔：(60 / BPM) / 4 秒
+      const stepDuration = (60 / bpm) / 4 * 1000;
+      seqIntervalId = setInterval(() => {
+        executeSequencerStep();
+      }, stepDuration);
+    }
+
+    function executeSequencerStep() {
+      clearStepHighlights();
+
+      // 點亮當前步進指示
+      for (let trackIdx = 0; trackIdx < 4; trackIdx++) {
+        const pad = document.querySelector(`.step-pad[data-track="${trackIdx}"][data-step="${currentStep}"]`);
+        if (pad) {
+          pad.classList.add('current-step');
+        }
+
+        // 若被標記為觸發，則發聲
+        if (sequencerGrid[trackIdx][currentStep] === 1 && !DRUM_TRACKS[trackIdx].muted) {
+          triggerDrumSound(DRUM_TRACKS[trackIdx].id);
+        }
+      }
+
+      currentStep = (currentStep + 1) % 16;
+    }
+
+    function clearStepHighlights() {
+      document.querySelectorAll('.step-pad.current-step').forEach(el => el.classList.remove('current-step'));
+    }
+
+    function renderSequencerUI() {
+      const container = document.getElementById('sequencerMatrix');
+      container.innerHTML = '';
+
+      DRUM_TRACKS.forEach((track, tIdx) => {
+        const trackRow = document.createElement('div');
+        trackRow.className = 'seq-track';
+
+        // 軌道資訊標籤與靜音按鈕
+        const metaBox = document.createElement('div');
+        metaBox.className = `track-meta ${track.metaClass}`;
+        metaBox.innerHTML = `
+          <span class="track-name">${track.name}</span>
+          <button class="track-btn-mute" id="muteTrack_${tIdx}">MUTE</button>
+        `;
+
+        metaBox.querySelector(`#muteTrack_${tIdx}`).addEventListener('click', (e) => {
+          track.muted = !track.muted;
+          e.target.classList.toggle('muted', track.muted);
+        });
+
+        // 16 個步進 Pad
+        const stepsBox = document.createElement('div');
+        stepsBox.className = 'seq-steps';
+
+        for (let s = 0; s < 16; s++) {
+          const pad = document.createElement('div');
+          pad.className = `step-pad ${track.colorClass}`;
+          if (sequencerGrid[tIdx][s] === 1) {
+            pad.classList.add('active');
+          }
+          pad.dataset.track = tIdx;
+          pad.dataset.step = s;
+
+          pad.addEventListener('click', () => {
+            if (!audioCtx) initAudio();
+            sequencerGrid[tIdx][s] = sequencerGrid[tIdx][s] === 1 ? 0 : 1;
+            pad.classList.toggle('active', sequencerGrid[tIdx][s] === 1);
+            if (sequencerGrid[tIdx][s] === 1) {
+              triggerDrumSound(track.id);
+            }
+          });
+
+          stepsBox.appendChild(pad);
+        }
+
+        trackRow.appendChild(metaBox);
+        trackRow.appendChild(stepsBox);
+        container.appendChild(trackRow);
+      });
+    }
+
+    function loadDrumPreset(type) {
+      if (type === 'synthwave') {
+        sequencerGrid = [
+          [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0],
+          [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0],
+          [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+          [1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0]
+        ];
+        document.getElementById('paramBpm').value = 120;
+        bpm = 120;
+      } else if (type === 'cyber') {
+        sequencerGrid = [
+          [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0],
+          [0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0],
+          [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1],
+          [1, 1, 0, 1, 1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 0, 0]
+        ];
+        document.getElementById('paramBpm').value = 135;
+        bpm = 135;
+      } else if (type === 'trap') {
+        sequencerGrid = [
+          [1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0],
+          [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0],
+          [1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0],
+          [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0]
+        ];
+        document.getElementById('paramBpm').value = 95;
+        bpm = 95;
+      }
+      document.getElementById('bpmVal').textContent = bpm;
+      renderSequencerUI();
+      if (isSeqPlaying) {
+        clearInterval(seqIntervalId);
+        startSequencerLoop();
+      }
+    }
+
+    /* =========================================================
+       F. 雙八度鋼琴琴鍵繪製與鍵盤快捷鍵綁定
+       ========================================================= */
+    // 兩組八度鍵位結構 (C3 ~ B4)
+    const PIANO_NOTES = [
+      // 第一八度
+      { name: 'C',  semi: 0,  black: false, key: 'A' },
+      { name: 'C#', semi: 1,  black: true,  key: 'W', offset: 5.2 },
+      { name: 'D',  semi: 2,  black: false, key: 'S' },
+      { name: 'D#', semi: 3,  black: true,  key: 'E', offset: 12.3 },
+      { name: 'E',  semi: 4,  black: false, key: 'D' },
+      { name: 'F',  semi: 5,  black: false, key: 'F' },
+      { name: 'F#', semi: 6,  black: true,  key: 'T', offset: 26.6 },
+      { name: 'G',  semi: 7,  black: false, key: 'G' },
+      { name: 'G#', semi: 8,  black: true,  key: 'Y', offset: 33.7 },
+      { name: 'A',  semi: 9,  black: false, key: 'H' },
+      { name: 'A#', semi: 10, black: true,  key: 'U', offset: 40.8 },
+      { name: 'B',  semi: 11, black: false, key: 'J' },
+      
+      // 第二八度
+      { name: 'C',  semi: 12, black: false, key: 'K' },
+      { name: 'C#', semi: 13, black: true,  key: 'O', offset: 55.2 },
+      { name: 'D',  semi: 14, black: false, key: 'L' },
+      { name: 'D#', semi: 15, black: true,  key: 'P', offset: 62.3 },
+      { name: 'E',  semi: 16, black: false, key: ';' },
+      { name: 'F',  semi: 17, black: false, key: "'" },
+      { name: 'F#', semi: 18, black: true,  key: ']', offset: 76.6 },
+      { name: 'G',  semi: 19, black: false, key: 'Z' },
+      { name: 'G#', semi: 20, black: true,  key: 'X', offset: 83.7 },
+      { name: 'A',  semi: 21, black: false, key: 'C' },
+      { name: 'A#', semi: 22, black: true,  key: 'V', offset: 90.8 },
+      { name: 'B',  semi: 23, black: false, key: 'B' },
+    ];
+
+    const keyMapToNote = {};
+
+    function renderPianoUI() {
+      const container = document.getElementById('pianoKeyboard');
+      container.innerHTML = '';
+
+      // 計算基礎 MIDI 音高 (Octave 4 時 C4 = 60)
+      const baseMidi = (currentOctave + 1) * 12;
+
+      PIANO_NOTES.forEach((noteDef) => {
+        const midi = baseMidi + noteDef.semi;
+        const keyEl = document.createElement('div');
+
+        if (noteDef.black) {
+          keyEl.className = 'key-black';
+          keyEl.style.left = `${noteDef.offset}%`;
+          keyEl.innerHTML = `
+            <span class="key-note">${noteDef.name}</span>
+            <span class="key-hint">${noteDef.key}</span>
+          `;
+        } else {
+          keyEl.className = 'key-white';
+          keyEl.innerHTML = `
+            <span class="key-note">${noteDef.name}</span>
+            <span class="key-hint">${noteDef.key}</span>
+          `;
+        }
+
+        keyEl.dataset.midi = midi;
+
+        // 滑鼠與觸控事件
+        keyEl.addEventListener('mousedown', (e) => {
+          e.preventDefault();
+          playNote(midi);
+        });
+
+        keyEl.addEventListener('mouseenter', (e) => {
+          if (e.buttons === 1) playNote(midi);
+        });
+
+        keyEl.addEventListener('mouseleave', () => {
+          stopNote(midi);
+        });
+
+        keyEl.addEventListener('mouseup', () => {
+          stopNote(midi);
+        });
+
+        // 觸控支援
+        keyEl.addEventListener('touchstart', (e) => {
+          e.preventDefault();
+          playNote(midi);
+        });
+        keyEl.addEventListener('touchend', (e) => {
+          e.preventDefault();
+          stopNote(midi);
+        });
+
+        container.appendChild(keyEl);
+        keyMapToNote[noteDef.key.toUpperCase()] = midi;
+      });
+    }
+
+    function highlightKey(midi, isPressed) {
+      const el = document.querySelector(`.keys-container [data-midi="${midi}"]`);
+      if (el) {
+        el.classList.toggle('active', isPressed);
+      }
+    }
+
+    // 鍵盤按下監聽
+    window.addEventListener('keydown', (e) => {
+      if (e.repeat) return;
+      const key = e.key.toUpperCase();
+      if (keyMapToNote[key] !== undefined) {
+        playNote(keyMapToNote[key]);
+      }
+    });
+
+    window.addEventListener('keyup', (e) => {
+      const key = e.key.toUpperCase();
+      if (keyMapToNote[key] !== undefined) {
+        stopNote(keyMapToNote[key]);
+      }
+    });
+
+    /* =========================================================
+       G. 即時音訊畫布視覺化 (Audio Visualizer)
+       ========================================================= */
+    function startVisualizer() {
+      const canvas = document.getElementById('visualizerCanvas');
+      const ctx = canvas.getContext('2d');
+
+      function resizeCanvas() {
+        canvas.width = canvas.parentElement.clientWidth * window.devicePixelRatio;
+        canvas.height = canvas.parentElement.clientHeight * window.devicePixelRatio;
+        ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+      }
+      resizeCanvas();
+      window.addEventListener('resize', resizeCanvas);
+
+      const bufferLength = analyser.frequencyBinCount;
+      const timeData = new Uint8Array(bufferLength);
+      const freqData = new Uint8Array(bufferLength);
+
+      function draw() {
+        requestAnimationFrame(draw);
+
+        const w = canvas.parentElement.clientWidth;
+        const h = canvas.parentElement.clientHeight;
+
+        ctx.fillStyle = 'rgba(4, 5, 8, 0.4)';
+        ctx.fillRect(0, 0, w, h);
+
+        if (visualizerMode === 'waveform') {
+          // 模式 1：示波器雷射光波 (Oscilloscope Beam)
+          analyser.getByteTimeDomainData(timeData);
+
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = '#00f0ff';
+          ctx.shadowBlur = 15;
+          ctx.shadowColor = '#00f0ff';
+
+          ctx.beginPath();
+          const sliceWidth = w / bufferLength;
+          let x = 0;
+
+          for (let i = 0; i < bufferLength; i++) {
+            const v = timeData[i] / 128.0;
+            const y = (v * h) / 2;
+
+            if (i === 0) {
+              ctx.moveTo(x, y);
+            } else {
+              ctx.lineTo(x, y);
+            }
+            x += sliceWidth;
+          }
+          ctx.stroke();
+
+          // 第二層粉紅光澤
+          ctx.lineWidth = 1.5;
+          ctx.strokeStyle = '#ff007f';
+          ctx.shadowBlur = 8;
+          ctx.shadowColor = '#ff007f';
+          ctx.stroke();
+          ctx.shadowBlur = 0;
+
+        } else {
+          // 模式 2：賽博頻譜立體長條 (Frequency Bars)
+          analyser.getByteFrequencyData(freqData);
+
+          const barCount = 48;
+          const barWidth = (w / barCount) - 4;
+          const step = Math.floor(bufferLength / barCount / 2);
+
+          for (let i = 0; i < barCount; i++) {
+            const value = freqData[i * step] || 0;
+            const percent = value / 255;
+            const barHeight = Math.max(6, percent * (h - 20));
+
+            const x = i * (barWidth + 4) + 6;
+            const y = h - barHeight - 10;
+
+            const grad = ctx.createLinearGradient(x, y, x, h);
+            grad.addColorStop(0, '#ff007f');
+            grad.addColorStop(0.5, '#00f0ff');
+            grad.addColorStop(1, '#8a2be2');
+
+            ctx.fillStyle = grad;
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = '#00f0ff';
+            ctx.fillRect(x, y, barWidth, barHeight);
+
+            // 頂部亮點
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(x, y - 2, barWidth, 2);
+          }
+          ctx.shadowBlur = 0;
+        }
+      }
+
+      draw();
+    }
+
+    /* =========================================================
+       H. 示範曲與自動演奏 (Demo Synthwave Song)
+       ========================================================= */
+    const DEMO_MELODY = [
+      { note: 60, dur: 300 }, // C4
+      { note: 63, dur: 300 }, // Eb4
+      { note: 67, dur: 300 }, // G4
+      { note: 70, dur: 450 }, // Bb4
+      { note: 67, dur: 300 }, // G4
+      { note: 65, dur: 300 }, // F4
+      { note: 63, dur: 300 }, // Eb4
+      { note: 60, dur: 600 }, // C4
+      { note: 58, dur: 300 }, // Bb3
+      { note: 60, dur: 600 }, // C4
+    ];
+
+    function toggleDemoSong() {
+      if (!audioCtx) initAudio();
+
+      const btn = document.getElementById('btnDemoSong');
+
+      if (isDemoPlaying) {
+        clearTimeout(demoSongTimeout);
+        isDemoPlaying = false;
+        btn.innerHTML = '<span>🎵 播放示範曲</span>';
+        if (isSeqPlaying) toggleSequencer();
+        return;
+      }
+
+      isDemoPlaying = true;
+      btn.innerHTML = '<span>⏹ 停止示範曲</span>';
+
+      // 搭配啟動節奏鼓機
+      if (!isSeqPlaying) {
+        loadDrumPreset('synthwave');
+        toggleSequencer();
+      }
+
+      let stepIndex = 0;
+      function playNextDemoNote() {
+        if (!isDemoPlaying) return;
+        const current = DEMO_MELODY[stepIndex];
+        playNote(current.note);
+
+        setTimeout(() => {
+          stopNote(current.note);
+        }, current.dur * 0.85);
+
+        stepIndex = (stepIndex + 1) % DEMO_MELODY.length;
+        demoSongTimeout = setTimeout(playNextDemoNote, current.dur);
+      }
+
+      playNextDemoNote();
+    }
+
+    /* =========================================================
+       I. 錄音與匯出功能 (MediaRecorder)
+       ========================================================= */
+    function toggleRecording() {
+      if (!audioCtx) initAudio();
+
+      const btnRecord = document.getElementById('btnRecord');
+      const recText = document.getElementById('recText');
+      const btnDownload = document.getElementById('btnDownloadRec');
+
+      if (mediaRecorder && mediaRecorder.state === 'recording') {
+        mediaRecorder.stop();
+        btnRecord.classList.remove('rec-active');
+        recText.textContent = '錄製作品';
+        return;
+      }
+
+      recordedChunks = [];
+      const stream = recDestination.stream;
+      
+      try {
+        mediaRecorder = new MediaRecorder(stream);
+      } catch (e) {
+        alert('此瀏覽器不支援即時音訊錄音');
+        return;
+      }
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          recordedChunks.push(e.data);
+        }
+      };
+
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(recordedChunks, { type: 'audio/webm' });
+        const url = URL.createObjectURL(blob);
+        btnDownload.style.display = 'inline-flex';
+        btnDownload.onclick = () => {
+          const a = document.createElement('a');
+          a.style.display = 'none';
+          a.href = url;
+          a.download = `NeonSynth_Track_${Date.now()}.webm`;
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(() => document.body.removeChild(a), 100);
+        };
+      };
+
+      mediaRecorder.start();
+      btnRecord.classList.add('rec-active');
+      recText.textContent = '停止錄製';
+    }
+
+    /* =========================================================
+       J. 介面事件綁定 (UI Controls Binding)
+       ========================================================= */
+    document.addEventListener('DOMContentLoaded', () => {
+      // 啟動音訊核心按鈕
+      document.getElementById('btnInitAudio').addEventListener('click', initAudio);
+
+      // 波形切換按鈕
+      document.querySelectorAll('.wave-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.wave-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          currentWaveform = btn.dataset.wave;
+          document.getElementById('valWaveform').textContent = currentWaveform.toUpperCase();
+        });
+      });
+
+      // 八度增減按鈕
+      document.getElementById('btnOctaveDown').addEventListener('click', () => {
+        if (currentOctave > 2) {
+          currentOctave--;
+          document.getElementById('octaveDisplay').textContent = `OCT: ${currentOctave}`;
+          renderPianoUI();
+        }
+      });
+
+      document.getElementById('btnOctaveUp').addEventListener('click', () => {
+        if (currentOctave < 6) {
+          currentOctave++;
+          document.getElementById('octaveDisplay').textContent = `OCT: ${currentOctave}`;
+          renderPianoUI();
+        }
+      });
+
+      // 參數滑桿
+      document.getElementById('paramCutoff').addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        document.getElementById('valCutoff').textContent = `${val} Hz`;
+        if (mainFilter) mainFilter.frequency.setValueAtTime(val, audioCtx.currentTime);
+      });
+
+      document.getElementById('paramRelease').addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        synthRelease = val;
+        document.getElementById('valRelease').textContent = `${val.toFixed(2)} s`;
+      });
+
+      document.getElementById('paramDelay').addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        document.getElementById('valDelay').textContent = `${Math.round((val / 0.7) * 100)}%`;
+        if (delayGain) delayGain.gain.setValueAtTime(val, audioCtx.currentTime);
+      });
+
+      document.getElementById('paramVolume').addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        document.getElementById('valVolume').textContent = `${Math.round(val * 100)}%`;
+        if (masterGain) masterGain.gain.setValueAtTime(val, audioCtx.currentTime);
+      });
+
+      document.getElementById('paramBpm').addEventListener('input', (e) => {
+        bpm = parseInt(e.target.value, 10);
+        document.getElementById('bpmVal').textContent = bpm;
+        if (isSeqPlaying) {
+          clearInterval(seqIntervalId);
+          startSequencerLoop();
+        }
+      });
+
+      // 鼓機按鈕
+      document.getElementById('btnPlaySeq').addEventListener('click', toggleSequencer);
+      document.getElementById('btnClearSeq').addEventListener('click', () => {
+        sequencerGrid = sequencerGrid.map(row => row.map(() => 0));
+        renderSequencerUI();
+      });
+      document.getElementById('btnRandomSeq').addEventListener('click', () => {
+        sequencerGrid = sequencerGrid.map(row => row.map(() => Math.random() > 0.75 ? 1 : 0));
+        renderSequencerUI();
+      });
+
+      // 示範曲與錄音
+      document.getElementById('btnDemoSong').addEventListener('click', toggleDemoSong);
+      document.getElementById('btnRecord').addEventListener('click', toggleRecording);
+
+      // 切換視覺化模式
+      document.getElementById('btnToggleVizMode').addEventListener('click', (e) => {
+        if (visualizerMode === 'waveform') {
+          visualizerMode = 'bars';
+          e.target.innerHTML = '<span>模式: 頻譜柱光</span>';
+        } else {
+          visualizerMode = 'waveform';
+          e.target.innerHTML = '<span>模式: 示波器光波</span>';
+        }
+      });
+
+      // 初始渲染 UI
+      renderPianoUI();
+      renderSequencerUI();
+    });
+  </script>
+</body>
+</html>
